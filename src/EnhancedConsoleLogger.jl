@@ -3,16 +3,31 @@
 
 Replacement for the standard library `ConsoleLogger` that adds several usability
 improvements.
+
+# Additional keyword arguments
+The `EnhancedConsoleLogger` supports all of the standard keyword arguments accepted
+by `ConsoleLogger`. In addition, special behavior is defined for the following arguments:
+ *  `_pid`: prints in a column on the top right side of a log message. This keyword is
+    used internally by `WorkerLogger` to display the originating process for a
+    log message.
+ *  `_overwrite`: If `true`, then repetitions of the log message will be printed over to
+    avoid filling the screen with log messages.
+ *  `progress`: For a progress between 0 and 1, draw a progress bar on the right side
+    of the log message.
+ *  `_showlocation`: If true, print the location of the log message. Defaults to true for
+    `Debug`, `Warning`, and `Error` logs, and to false for `Info` logs.
 """
 mutable struct EnhancedConsoleLogger <: AbstractLogger
     stream::IO
     width::Int
     show_limited::Bool
     message_limits::Dict{Any, Int}
+
     last_id::Symbol
+    last_length::Int
 end
 function EnhancedConsoleLogger(stream::IO=stderr; show_limited=true, width=80)
-    EnhancedConsoleLogger(stream, width, show_limited, Dict{Any, Int}(), :nothing)
+    EnhancedConsoleLogger(stream, width, show_limited, Dict{Any, Int}(), :nothing, 0)
 end
 
 """
@@ -75,7 +90,9 @@ function log_message(logger::EnhancedConsoleLogger, msg, kwargs)
                           :displaysize => (rows_per_value, dsize[2]-5),
                           :limit => logger.show_limited)
         for (key,val) in pairs(kwargs)
-            key == :progress && continue
+            key == :progress      && continue
+            key == :_overwrite    && continue
+            key == :_showlocation && continue
             Logging.showvalue(valio, val)
             vallines = split(String(take!(valbuf)), '\n')
             if length(vallines) == 1
@@ -93,11 +110,21 @@ end
 function handle_message(logger::EnhancedConsoleLogger, level, message, mod, group, id, file, line; kwargs...)
     label = log_label(level)
     color = log_color(level)
-    location = log_location(mod, group, id, file, line)
     msglines = log_message(logger, message, kwargs)
+    location = ""
+    if get(kwargs, :_showlocation, ProgressLevel < level < Logging.Warn)
+        location = log_location(mod, group, id, file, line)
+    end
 
     buf = IOBuffer()
     iob = IOContext(buf, logger.stream)
+
+    should_overwrite = get(kwargs, :_overwrite, false)
+    level == ProgressLevel && (should_overwrite = true)
+    if should_overwrite && id == logger.last_id
+        print(iob, "\u1b[A"^logger.last_length)
+    end
+
     justify_width = min(logger.width, displaysize(logger.stream)[2])
     location_width = 2 + (isempty(label) || length(msglines) > 1 ? 0 : length(label) + 1) +
                     msglines[end].indent + Logging.termlength(msglines[end].msg) +
@@ -143,10 +170,8 @@ function handle_message(logger::EnhancedConsoleLogger, level, message, mod, grou
         println(iob)
     end
 
-    if id == logger.last_id && level == ProgressLevel && length(kwargs) == 1
-        print(logger.stream, "\u1b[A")
-    end
     logger.last_id = id
+    logger.last_length = length(msglines)
     write(logger.stream, take!(buf))
     nothing
 end
