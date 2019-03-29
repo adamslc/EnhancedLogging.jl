@@ -1,6 +1,13 @@
-using Logging, EnhancedLogging
+using Distributed, Logging, EnhancedLogging
+addprocs(1)
 
-function test_logging()
+global_logger(EnhancedConsoleLogger())
+@everywhere begin
+    using Logging, EnhancedLogging
+    global_logger(WorkerLogger(global_logger()))
+end
+
+@everywhere function test_logging()
     @debug "hello world"
     @logmsg ProgressLevel "status report" progress=0.32 _overwrite=true
     @logmsg ProgressLevel "status report" _overwrite=true
@@ -17,3 +24,6 @@ function test_logging()
 end
 
 with_logger(test_logging, EnhancedConsoleLogger())
+
+
+remotecall_fetch(test_logging, 2)
