@@ -91,6 +91,7 @@ function log_message(logger::EnhancedConsoleLogger, msg, kwargs)
                           :limit => logger.show_limited)
         for (key,val) in pairs(kwargs)
             key == :progress      && continue
+            key == :_pid          && continue
             key == :_overwrite    && continue
             key == :_showlocation && continue
             Logging.showvalue(valio, val)
@@ -125,6 +126,7 @@ function handle_message(logger::EnhancedConsoleLogger, level, message, mod, grou
         print(iob, "\u1b[A"^logger.last_length)
     end
 
+    pid_string = haskey(kwargs, :_pid) ?  "║"*string(kwargs[:_pid]) : ""
     justify_width = min(logger.width, displaysize(logger.stream)[2])
     location_width = 2 + (isempty(label) || length(msglines) > 1 ? 0 : length(label) + 1) +
                     msglines[end].indent + Logging.termlength(msglines[end].msg) +
@@ -141,7 +143,7 @@ function handle_message(logger::EnhancedConsoleLogger, level, message, mod, grou
     for (i,(indent,msg)) in enumerate(msglines)
         linewidth = 2
         boxstrs = length(msglines) == 1 ? ("║ ", "║") :
-                  i == 1                ? ("╔ ", "╗") :
+                  i == 1                ? ("║ ", "║") :
                   i < length(msglines)  ? ("║ ", "║") :
                                           ("╚ ", "╝")
         printstyled(iob, boxstrs[1], bold=true, color=color)
@@ -154,19 +156,24 @@ function handle_message(logger::EnhancedConsoleLogger, level, message, mod, grou
         if level == ProgressLevel && i == 1
             prog_string = haskey(kwargs, :progress) ? progress_string(kwargs[:progress], 30) : "NO PROGRESS PROVIDED "
             prog_color  = haskey(kwargs, :progress) ? :green : :red
-            npad = max(0, justify_width - linewidth - length(prog_string) - 3)
+            npad = max(0, justify_width - linewidth - length(prog_string) - length(pid_string) - 3)
             printstyled(iob, ' ', '·'^npad, ' ', color=:light_black)
             printstyled(iob, prog_string, color=prog_color, bold=true)
             linewidth += npad + 32
             location=""
         end
         if i == length(msglines) && !isempty(location)
-            npad = max(0, justify_width - linewidth - length(location) - 4)
+            npad = max(0, justify_width - linewidth - length(location) - (i == 1 ? length(pid_string) : 0) - 4)
             printstyled(iob, ' ', '·'^npad, ' ', location, color=:light_black)
             linewidth += npad + length(location) + 2
         end
-        npad = max(0, justify_width - linewidth - 1)
-        printstyled(iob, ' '^npad, boxstrs[2], bold=true, color=color)
+        npad = max(0, justify_width - linewidth - (i == 1 ? length(pid_string) : 0) - 1)
+        printstyled(iob, ' '^npad, bold=true, color=color)
+        if i == 1 && pid_string != ""
+            printstyled(iob, pid_string, bold=true, color=color)
+            linewidth += length(pid_string)
+        end
+        printstyled(iob, boxstrs[2], bold=true, color=color)
         println(iob)
     end
 
