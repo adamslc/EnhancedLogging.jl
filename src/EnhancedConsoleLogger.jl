@@ -108,73 +108,87 @@ function log_message(logger::EnhancedConsoleLogger, msg, kwargs)
     return msglines
 end
 
-function handle_message(logger::EnhancedConsoleLogger, level, message, mod, group, id, file, line; kwargs...)
+function handle_message(logger::EnhancedConsoleLogger, level, message, mod, group,
+                        id, file, line; kwargs...)
     label = log_label(level)
     color = log_color(level)
     msglines = log_message(logger, message, kwargs)
-    location = ""
-    if get(kwargs, :_showlocation, ProgressLevel < level < Logging.Warn)
-        location = log_location(mod, group, id, file, line)
-    end
 
     buf = IOBuffer()
     iob = IOContext(buf, logger.stream)
 
-    should_overwrite = get(kwargs, :_overwrite, false)
-    level == ProgressLevel && (should_overwrite = true)
+    should_overwrite = get(kwargs, :_overwrite, level == ProgressLevel)
     if should_overwrite && id == logger.last_id
         print(iob, "\u1b[A"^logger.last_length)
     end
 
-    pid_string = haskey(kwargs, :_pid) ?  "║"*string(kwargs[:_pid]) : ""
+    pid_string = haskey(kwargs, :_pid) ? "║"*string(kwargs[:_pid]) : ""
     justify_width = min(logger.width, displaysize(logger.stream)[2])
-    location_width = 2 + (isempty(label) || length(msglines) > 1 ? 0 : length(label) + 1) +
-                    msglines[end].indent + Logging.termlength(msglines[end].msg) +
-                    (isempty(location) ? 0 : length(location)+2)
-    if location_width > justify_width && !isempty(location)
-        push!(msglines, (indent=0,msg=SubString("")))
-    end
-    if level == ProgressLevel
-        progress_width = 2 + length(label) + 1 + msglines[1].indent + Logging.termlength(msglines[1].msg) + 20
-        if progress_width > justify_width
-            push!(msglines, (indent=0,msg=SubString("")))
-        end
-    end
-    for (i,(indent,msg)) in enumerate(msglines)
+
+    i = 1
+    print_progress = (level == ProgressLevel)
+    print_location = get(kwargs, :_showlocation,
+                         level < ProgressLevel || level >= Logging.Warn)
+    while i <= length(msglines)
+        indent = msglines[i][1]
+        msg    = msglines[i][2]
         linewidth = 2
-        boxstrs = length(msglines) == 1 ? ("║ ", "║") :
-                  i == 1                ? ("║ ", "║") :
-                  i < length(msglines)  ? ("║ ", "║") :
-                                          ("╚ ", "╝")
-        printstyled(iob, boxstrs[1], bold=true, color=color)
+        printstyled(iob, "║ ", bold=true, color=color)
+
         if i == 1 && !isempty(label)
             printstyled(iob, label, " ", bold=true, color=color)
             linewidth += length(label) + 1
         end
         print(iob, ' '^indent, msg)
         linewidth += indent + length(msg)
-        if level == ProgressLevel && i == 1
+
+        if print_progress
             prog_string = haskey(kwargs, :progress) ? progress_string(kwargs[:progress], 30) : "NO PROGRESS PROVIDED "
             prog_color  = haskey(kwargs, :progress) ? :green : :red
-            npad = max(0, justify_width - linewidth - length(prog_string) - length(pid_string) - 3)
-            printstyled(iob, ' ', '·'^npad, ' ', color=:light_black)
-            printstyled(iob, prog_string, color=prog_color, bold=true)
-            linewidth += npad + 32
-            location=""
+            npad = justify_width - linewidth - length(prog_string) -
+                   (i == 1 ? length(pid_string) : 0) - 3
+
+            if npad < 0
+                insert!(msglines, i+1, (indent=0,msg=SubString("")))
+            else
+                printstyled(iob, ' ', '·'^npad, ' ', color=:light_black)
+                printstyled(iob, prog_string, color=prog_color, bold=true)
+                linewidth += npad + 32
+
+                print_progress = false
+
+                if i == length(msglines) && print_location
+                    push!(msglines, (indent=0,msg=SubString("")))
+                end
+            end
         end
-        if i == length(msglines) && !isempty(location)
-            npad = max(0, justify_width - linewidth - length(location) - (i == 1 ? length(pid_string) : 0) - 4)
-            printstyled(iob, ' ', '·'^npad, ' ', location, color=:light_black)
-            linewidth += npad + length(location) + 2
+
+        if i == length(msglines) && print_location
+            location = log_location(mod, group, id, file, line)
+
+            npad = justify_width - linewidth - length(location) -
+                   (i == 1 ? length(pid_string) : 0) - 4
+
+            if npad < 0
+                push!(msglines, (indent=0,msg=SubString("")))
+            else
+                printstyled(iob, ' ', '·'^npad, ' ', location, color=:light_black)
+                linewidth += npad + length(location) + 2
+
+                print_location = false
+            end
         end
+
         npad = max(0, justify_width - linewidth - (i == 1 ? length(pid_string) : 0) - 1)
         printstyled(iob, ' '^npad, bold=true, color=color)
         if i == 1 && pid_string != ""
             printstyled(iob, pid_string, bold=true, color=color)
             linewidth += length(pid_string)
         end
-        printstyled(iob, boxstrs[2], bold=true, color=color)
+        printstyled(iob, "║", bold=true, color=color)
         println(iob)
+
+        i += 1
     end
 
     logger.last_id = id
