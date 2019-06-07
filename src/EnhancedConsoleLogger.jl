@@ -109,7 +109,13 @@ function log_message(logger::EnhancedConsoleLogger, msg, kwargs)
 end
 
 function handle_message(logger::EnhancedConsoleLogger, level, message, mod, group,
-                        id, file, line; kwargs...)
+                        id, file, line; maxlog=nothing, kwargs...)
+    if maxlog isa Integer
+        remaining = get!(logger.message_limits, id, maxlog)
+        logger.message_limits[id] = remaining - 1
+        remaining > 0 || return
+    end
+
     label = log_label(level)
     color = log_color(level)
     msglines = log_message(logger, message, kwargs)
