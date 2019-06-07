@@ -19,6 +19,8 @@ by `ConsoleLogger`. In addition, special behavior is defined for the following a
 """
 mutable struct EnhancedConsoleLogger <: AbstractLogger
     stream::IO
+    min_level::LogLevel
+
     width::Int
     show_limited::Bool
     message_limits::Dict{Any, Int}
@@ -26,8 +28,10 @@ mutable struct EnhancedConsoleLogger <: AbstractLogger
     last_id::Symbol
     last_length::Int
 end
-function EnhancedConsoleLogger(stream::IO=stderr; show_limited=true, width=80)
-    EnhancedConsoleLogger(stream, width, show_limited, Dict{Any, Int}(), :nothing, 0)
+function EnhancedConsoleLogger(stream::IO=stderr; show_limited=true, width=80,
+                               min_level::LogLevel=ProgressLevel)
+    EnhancedConsoleLogger(stream, min_level, width, show_limited, Dict{Any, Int}(),
+                          :nothing, 0)
 end
 
 """
@@ -204,5 +208,5 @@ function handle_message(logger::EnhancedConsoleLogger, level, message, mod, grou
 end
 
 shouldlog(::EnhancedConsoleLogger, args...) = true
-min_enabled_level(::EnhancedConsoleLogger) = ProgressLevel
+min_enabled_level(logger::EnhancedConsoleLogger) = logger.min_level
 catch_exceptions(::EnhancedConsoleLogger) = false
